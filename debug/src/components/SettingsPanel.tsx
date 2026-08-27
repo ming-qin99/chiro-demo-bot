@@ -9,6 +9,7 @@ import {
   type RuntimeProvider,
 } from "../lib/branding.js";
 import { AppleSection } from "./AppleSection.js";
+import { ClinikoSection } from "./ClinikoSection.js";
 import { BrowserSection } from "./BrowserSection.js";
 
 type RuntimeChoice = "claude" | "codex";
@@ -204,6 +205,7 @@ export function SettingsPanel({
         )}
         <BrowserSection isDark={isDark} />
         <AppleSection isDark={isDark} />
+        <ClinikoSection isDark={isDark} />
         <DemoModeRow isDark={isDark} />
       </div>
     </div>
@@ -281,11 +283,11 @@ function TextBoopRow({
 
   return (
     <SettingShell
-      label="Text Boop"
+      label="Text clinic assistant"
       description={
         demoModeEnabled
           ? "Demo mode is hiding the real Sendblue number and showing a placeholder instead."
-          : "Text or iMessage this Sendblue number to talk to Boop. Message it from a different phone; it is the number people text TO, not your personal cell."
+          : "Text or iMessage this Sendblue number to talk to the clinic assistant. It is the clinic number patients text, not a staff member's personal cell."
       }
       debugLine={debugLine}
       isDark={isDark}

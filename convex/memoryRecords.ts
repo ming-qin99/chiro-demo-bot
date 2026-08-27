@@ -36,6 +36,7 @@ export const upsert = mutation({
     importance: v.number(),
     decayRate: v.number(),
     sourceTurn: v.optional(v.string()),
+    scope: v.optional(v.string()),
     supersedes: v.optional(v.array(v.string())),
     embedding: v.optional(v.array(v.float64())),
     metadata: v.optional(v.string()),
@@ -43,6 +44,14 @@ export const upsert = mutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    const existing = await ctx.db
+      .query("memoryRecords")
+      .withIndex("by_memory_id", (q) => q.eq("memoryId", args.memoryId))
+      .unique();
+    // A memory's isolation boundary is immutable after creation. This also
+    // gives legacy unscoped rows the clinic scope without allowing a caller
+    // to move an existing patient memory into another patient's namespace.
+    const targetScope = existing?.scope ?? args.scope ?? "clinic";
 
     // Archive any memories this one supersedes. Must run on BOTH the insert
     // and update paths — consolidation merges typically update an existing
@@ -54,16 +63,15 @@ export const upsert = mutation({
           .query("memoryRecords")
           .withIndex("by_memory_id", (q) => q.eq("memoryId", sid))
           .unique();
-        if (target && target.lifecycle === "active") {
+        if (
+          target &&
+          target.lifecycle === "active" &&
+          (target.scope ?? "clinic") === targetScope
+        ) {
           await ctx.db.patch(target._id, { lifecycle: "archived" });
         }
       }
     }
-
-    const existing = await ctx.db
-      .query("memoryRecords")
-      .withIndex("by_memory_id", (q) => q.eq("memoryId", args.memoryId))
-      .unique();
 
     if (existing) {
       await ctx.db.patch(existing._id, {
@@ -73,6 +81,7 @@ export const upsert = mutation({
         importance: args.importance,
         decayRate: args.decayRate,
         supersedes: args.supersedes,
+        scope: targetScope,
         embedding: args.embedding ?? existing.embedding,
         metadata: args.metadata ?? existing.metadata,
         imageStorageIds:
@@ -89,6 +98,7 @@ export const upsert = mutation({
     const { imageStorageIds, ...rest } = args;
     return await ctx.db.insert("memoryRecords", {
       ...rest,
+      scope: targetScope,
       ...(imageStorageIds && imageStorageIds.length > 0
         ? { imageStorageIds }
         : {}),
@@ -101,19 +111,31 @@ export const upsert = mutation({
 });
 
 export const getByIds = query({
-  args: { ids: v.array(v.id("memoryRecords")) },
+  args: { ids: v.array(v.id("memoryRecords")), scopes: v.array(v.string()) },
   handler: async (ctx, args) => {
     const out = [];
     for (const id of args.ids) {
       const r = await ctx.db.get(id);
-      if (r && !isDemoId(r.memoryId)) out.push(r);
+      const normalizedScope = r?.scope ?? "clinic";
+      if (
+        r &&
+        r.lifecycle === "active" &&
+        args.scopes.includes(normalizedScope) &&
+        !isDemoId(r.memoryId)
+      ) {
+        out.push(r);
+      }
     }
     return out;
   },
 });
 
 export const vectorSearch = action({
-  args: { embedding: v.array(v.float64()), limit: v.optional(v.number()) },
+  args: {
+    embedding: v.array(v.float64()),
+    scopes: v.array(v.string()),
+    limit: v.optional(v.number()),
+  },
   handler: async (
     ctx,
     args,
@@ -126,10 +148,18 @@ export const vectorSearch = action({
       // Demo vectors share the same index. Oversample enough to filter them
       // without allowing seeded showcase data into real memory recall.
       limit: Math.min(256, limit + 100),
-      filter: (q) => q.eq("lifecycle", "active"),
+      // Convex vector filters cannot AND scope with lifecycle. Scope is the
+      // isolation boundary, so filter it here and enforce lifecycle after
+      // hydration in getByIds.
+      filter: (q) =>
+        q.or(
+          ...args.scopes.map((scope) => q.eq("scope", scope)),
+          ...(args.scopes.includes("clinic") ? [q.eq("scope", undefined)] : []),
+        ),
     });
     const records = await ctx.runQuery(api.memoryRecords.getByIds, {
       ids: results.map((r) => r._id),
+      scopes: args.scopes,
     });
     const byId = new Map(records.map((record) => [record._id, record]));
     return results
@@ -149,6 +179,7 @@ type MemoryListArgs = {
   tier?: MemoryTier;
   segment?: MemorySegment;
   lifecycle?: MemoryLifecycle;
+  scopes?: string[];
   limit?: number;
 };
 
@@ -169,7 +200,12 @@ async function readMemories(ctx: QueryCtx, args: MemoryListArgs, demoOnly: boole
       : await ctx.db.query("memoryRecords").order("desc").take(DEMO_SCAN_LIMIT);
   const lifecycle = args.lifecycle ?? "active";
   return results
-    .filter((record) => isDemoId(record.memoryId) === demoOnly && record.lifecycle === lifecycle)
+    .filter(
+      (record) =>
+        isDemoId(record.memoryId) === demoOnly &&
+        record.lifecycle === lifecycle &&
+        (!args.scopes || args.scopes.includes(record.scope ?? "clinic")),
+    )
     .slice(0, limit);
 }
 
@@ -177,6 +213,7 @@ const listArgs = {
   tier: v.optional(tierV),
   segment: v.optional(segmentV),
   lifecycle: v.optional(lifecycleV),
+  scopes: v.optional(v.array(v.string())),
   limit: v.optional(v.number()),
 };
 
@@ -193,7 +230,11 @@ export const listForDashboard = query({
 });
 
 export const search = query({
-  args: { query: v.string(), limit: v.optional(v.number()) },
+  args: {
+    query: v.string(),
+    scopes: v.array(v.string()),
+    limit: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     const limit = args.limit ?? 20;
     const q = args.query.toLowerCase();
@@ -208,7 +249,12 @@ export const search = query({
       .order("desc")
       .take(500);
     return active
-      .filter((m) => !isDemoId(m.memoryId) && m.content.toLowerCase().includes(q))
+      .filter(
+        (m) =>
+          !isDemoId(m.memoryId) &&
+          args.scopes.includes(m.scope ?? "clinic") &&
+          m.content.toLowerCase().includes(q),
+      )
       .sort((a, b) => b.importance - a.importance)
       .slice(0, limit);
   },

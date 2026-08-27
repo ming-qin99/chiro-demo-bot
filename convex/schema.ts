@@ -42,6 +42,9 @@ export default defineSchema({
     accessCount: v.number(),
     lastAccessedAt: v.number(),
     sourceTurn: v.optional(v.string()),
+    // Audience boundary for durable memory. Missing values are legacy clinic
+    // memories; new writes always provide an explicit scope.
+    scope: v.optional(v.string()),
     lifecycle: v.union(v.literal("active"), v.literal("archived"), v.literal("pruned")),
     supersedes: v.optional(v.array(v.string())),
     embedding: v.optional(v.array(v.float64())),
@@ -60,8 +63,20 @@ export default defineSchema({
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1024,
-      filterFields: ["lifecycle"],
+      filterFields: ["lifecycle", "scope"],
     }),
+
+  contacts: defineTable({
+    phone: v.string(),
+    role: v.union(v.literal("patient"), v.literal("staff"), v.literal("unknown")),
+    clinikoPatientId: v.optional(v.string()),
+    displayName: v.optional(v.string()),
+    createdAt: v.number(),
+    lastSeenAt: v.number(),
+    lastMatchAttemptAt: v.optional(v.number()),
+  })
+    .index("by_phone", ["phone"])
+    .index("by_cliniko_id", ["clinikoPatientId"]),
 
   executionAgents: defineTable({
     agentId: v.string(),
@@ -83,6 +98,12 @@ export default defineSchema({
     result: v.optional(v.string()),
     error: v.optional(v.string()),
     mcpServers: v.array(v.string()),
+    audience: v.optional(
+      v.union(v.literal("patient"), v.literal("staff"), v.literal("unknown")),
+    ),
+    patientPhone: v.optional(v.string()),
+    clinikoPatientId: v.optional(v.string()),
+    displayName: v.optional(v.string()),
     inputTokens: v.number(),
     outputTokens: v.number(),
     cacheReadTokens: v.optional(v.number()),
@@ -199,6 +220,49 @@ export default defineSchema({
   })
     .index("by_draft_id", ["draftId"])
     .index("by_conversation_status", ["conversationId", "status"]),
+
+  escalations: defineTable({
+    escalationId: v.string(),
+    patientConversationId: v.string(),
+    patientPhone: v.string(),
+    patientName: v.optional(v.string()),
+    question: v.string(),
+    context: v.optional(v.string()),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("answered"),
+      v.literal("relayed"),
+      v.literal("dismissed"),
+    ),
+    answer: v.optional(v.string()),
+    createdAt: v.number(),
+    answeredAt: v.optional(v.number()),
+    remindedAt: v.optional(v.number()),
+  })
+    .index("by_escalation_id", ["escalationId"])
+    .index("by_status_and_created_at", ["status", "createdAt"]),
+
+  clinikoOutreach: defineTable({
+    outreachId: v.string(),
+    kind: v.union(v.literal("reminder"), v.literal("followup")),
+    appointmentId: v.string(),
+    patientPhone: v.string(),
+    status: v.union(
+      v.literal("scheduled"),
+      v.literal("drafted"),
+      v.literal("sent"),
+      v.literal("skipped"),
+      v.literal("failed"),
+    ),
+    scheduledFor: v.number(),
+    draftId: v.optional(v.string()),
+    error: v.optional(v.string()),
+    sentAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index("by_outreach_id", ["outreachId"])
+    .index("by_appointment_id_and_kind", ["appointmentId", "kind"])
+    .index("by_status_and_scheduled_for", ["status", "scheduledFor"]),
 
   consolidationRuns: defineTable({
     runId: v.string(),

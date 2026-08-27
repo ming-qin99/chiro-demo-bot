@@ -23,6 +23,12 @@ export const create = mutation({
     reasoningEffort: v.optional(v.string()),
     billingMode: v.optional(v.union(v.literal("api"), v.literal("codex-subscription"))),
     mcpServers: v.array(v.string()),
+    audience: v.optional(
+      v.union(v.literal("patient"), v.literal("staff"), v.literal("unknown")),
+    ),
+    patientPhone: v.optional(v.string()),
+    clinikoPatientId: v.optional(v.string()),
+    displayName: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     return await ctx.db.insert("executionAgents", {

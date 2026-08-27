@@ -11,6 +11,8 @@ import { runAgentRuntime } from "./runtimes/index.js";
 import { EMPTY_USAGE, type UsageTotals } from "./usage.js";
 import { handleUserMessage } from "./interaction-agent.js";
 import { sendImessage } from "./sendblue.js";
+import { normalizeClinicPhone } from "./clinic-config.js";
+import type { Audience } from "./identity.js";
 import { ensureTrigger, getComposio, listConnectedToolkits } from "./composio.js";
 import { ensureWebhookSubscription } from "./composio-webhook.js";
 import { describeUserNow } from "./timezone-config.js";
@@ -265,6 +267,7 @@ async function recallPreferenceLines(): Promise<string[]> {
     const rows = await convex.query(api.memoryRecords.list, {
       segment: "preference",
       lifecycle: "active",
+      scopes: ["clinic", "staff"],
       limit: 20,
     });
     return rows.map((r: { content: string }) => r.content);
@@ -279,38 +282,31 @@ async function recallPreferenceLines(): Promise<string[]> {
 // conversation that doesn't match the `sms:+1NNNNNNNNNN` ID Sendblue uses
 // for inbound messages from the same person — proactive notices end up in
 // a parallel Convex conversation invisible to the user-driven thread.
-function normalizeProactivePhone(raw: string): string | null {
-  const trimmed = raw.trim();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("+")) return trimmed;
-  if (/^\d{10}$/.test(trimmed)) return `+1${trimmed}`;
-  if (/^\d{11,15}$/.test(trimmed)) return `+${trimmed}`;
-  return null;
-}
-
-async function dispatchProactiveNotice(summary: string): Promise<void> {
-  const raw = process.env.BOOP_USER_PHONE;
-  if (!raw) {
-    console.warn("[proactive] BOOP_USER_PHONE not set; skipping dispatch");
-    return;
-  }
-  const phone = normalizeProactivePhone(raw);
+export async function dispatchProactiveNoticeTo(
+  rawPhone: string,
+  summary: string,
+  audience: Audience = "staff",
+): Promise<boolean> {
+  const phone = normalizeClinicPhone(rawPhone);
   if (!phone) {
     console.warn(
-      `[proactive] BOOP_USER_PHONE=${JSON.stringify(raw)} doesn't look like a valid phone number; skipping dispatch`,
+      `[proactive] target doesn't look like a valid phone number; skipping dispatch`,
     );
-    return;
+    return false;
   }
   const conversationId = `sms:${phone}`;
   const reply = await handleUserMessage({
     conversationId,
     content: `[proactive notice] ${summary}`,
     kind: "proactive",
+    audience,
+    patientPhone: phone,
   });
   // handleUserMessage only sends iMessage from inside send_ack; the final
   // reply is the caller's responsibility.
   if (reply && reply !== "(no reply)") {
-    await sendImessage(phone, reply);
+    const sent = await sendImessage(phone, reply);
+    if (!sent) return false;
     await convex.mutation(api.messages.send, {
       conversationId,
       role: "assistant",
@@ -319,7 +315,8 @@ async function dispatchProactiveNotice(summary: string): Promise<void> {
   } else {
     // IA stayed silent — fall back to the raw classifier summary so the
     // user still gets the notice; otherwise classification was a no-op.
-    await sendImessage(phone, summary);
+    const sent = await sendImessage(phone, summary);
+    if (!sent) return false;
     await convex.mutation(api.messages.send, {
       conversationId,
       role: "assistant",
@@ -327,6 +324,16 @@ async function dispatchProactiveNotice(summary: string): Promise<void> {
     });
     console.log(`[proactive] IA produced no reply; sent raw summary`);
   }
+  return true;
+}
+
+async function dispatchProactiveNotice(summary: string): Promise<void> {
+  const raw = process.env.BOOP_USER_PHONE;
+  if (!raw) {
+    console.warn("[proactive] BOOP_USER_PHONE not set; skipping dispatch");
+    return;
+  }
+  await dispatchProactiveNoticeTo(raw, summary, "staff");
 }
 
 interface NormalizedTriggerEvent {

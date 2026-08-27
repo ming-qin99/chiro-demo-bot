@@ -6,9 +6,20 @@ import { createClaudeMcpServer } from "./runtimes/claude.js";
 import { defineRuntimeTool } from "./runtimes/tool.js";
 import { runtimeText, type RuntimeTool } from "./runtimes/types.js";
 import type { RuntimeConfig } from "./runtime-config.js";
+import type { Audience } from "./identity.js";
 
 function randomId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function draftExecutionIntegrations(
+  audience: Audience | undefined,
+  draftKind: string,
+  requested: string[],
+): string[] | null {
+  if (audience === "staff") return requested;
+  if (audience === "patient" && draftKind.startsWith("cliniko.")) return ["cliniko"];
+  return null;
 }
 
 export function createDraftStagingTools(conversationId: string): RuntimeTool[] {
@@ -55,6 +66,12 @@ export function createDraftStagingMcp(conversationId: string) {
 export function createDraftDecisionTools(
   conversationId: string,
   runtimeConfig?: RuntimeConfig,
+  context: {
+    audience?: Audience;
+    patientPhone?: string;
+    clinikoPatientId?: string;
+    displayName?: string;
+  } = {},
 ): RuntimeTool[] {
   return [
     defineRuntimeTool(
@@ -84,20 +101,62 @@ export function createDraftDecisionTools(
         if (!draft || draft.status !== "pending") {
           return runtimeText(`Draft ${args.draftId} not found or already decided.`, false);
         }
-        await convex.mutation(api.drafts.setStatus, {
-          draftId: args.draftId,
-          status: "sent",
-        });
+        if (draft.conversationId !== conversationId) {
+          return runtimeText("That draft belongs to a different conversation.", false);
+        }
+        const executionIntegrations = draftExecutionIntegrations(
+          context.audience,
+          draft.kind,
+          args.integrations,
+        );
+        if (!executionIntegrations) {
+          return runtimeText(
+            "Only clinic staff or a matched patient with a patient-pinned Cliniko booking draft can execute this action.",
+            false,
+          );
+        }
+        if (draft.kind.startsWith("cliniko.") && context.audience === "patient") {
+          let payload: { patientId?: unknown };
+          try {
+            payload = JSON.parse(draft.payload) as { patientId?: unknown };
+          } catch {
+            return runtimeText("The booking draft payload is invalid.", false);
+          }
+          if (
+            !context.clinikoPatientId ||
+            String(payload.patientId ?? "") !== context.clinikoPatientId
+          ) {
+            return runtimeText(
+              "I can't execute that booking draft because it is not pinned to this patient's Cliniko record.",
+              false,
+            );
+          }
+        }
         const task = `Execute this approved draft. Use the matching integration tool to actually send/create it.
 kind: ${draft.kind}
 summary: ${draft.summary}
 payload JSON: ${draft.payload}`;
         const res = await spawnExecutionAgent({
           task,
-          integrations: args.integrations,
+          integrations: executionIntegrations,
           conversationId,
           name: `send:${draft.kind}`,
           runtimeConfig,
+          audience: context.audience,
+          patientPhone: context.patientPhone,
+          clinikoPatientId: context.clinikoPatientId,
+          displayName: context.displayName,
+          allowWrites: true,
+        });
+        if (res.status !== "completed") {
+          return runtimeText(
+            `Draft ${args.draftId} could not be executed. It is still pending.\n\n${res.result}`,
+            false,
+          );
+        }
+        await convex.mutation(api.drafts.setStatus, {
+          draftId: args.draftId,
+          status: "sent",
         });
         return runtimeText(`Draft ${args.draftId} executed.\n\n${res.result}`);
       },
@@ -109,6 +168,13 @@ payload JSON: ${draft.payload}`;
       "Cancel a pending draft when the user says 'no', 'cancel', or revises the request.",
       { draftId: z.string() },
       async (args) => {
+        const draft = await convex.query(api.drafts.get, { draftId: args.draftId });
+        if (!draft || draft.status !== "pending") {
+          return runtimeText(`Draft ${args.draftId} not found or already decided.`, false);
+        }
+        if (draft.conversationId !== conversationId) {
+          return runtimeText("That draft belongs to a different conversation.", false);
+        }
         await convex.mutation(api.drafts.setStatus, {
           draftId: args.draftId,
           status: "rejected",

@@ -19,7 +19,20 @@ const segmentEnum = z.enum([
   "context",
 ]);
 
-export function createMemoryTools(conversationId: string): RuntimeTool[] {
+export interface MemoryToolScope {
+  readScopes: string[];
+  writeScope: string;
+}
+
+const DEFAULT_SCOPE: MemoryToolScope = {
+  readScopes: ["clinic"],
+  writeScope: "clinic",
+};
+
+export function createMemoryTools(
+  conversationId: string,
+  scope: MemoryToolScope = DEFAULT_SCOPE,
+): RuntimeTool[] {
   return [
     defineRuntimeTool(
       NAMESPACE,
@@ -50,6 +63,7 @@ export function createMemoryTools(conversationId: string): RuntimeTool[] {
           decayRate: DEFAULT_DECAY[tier],
           supersedes: args.supersedes,
           embedding,
+          scope: scope.writeScope,
         });
         await convex.mutation(api.memoryEvents.emit, {
           eventType: "memory.written",
@@ -78,6 +92,7 @@ export function createMemoryTools(conversationId: string): RuntimeTool[] {
           if (queryVec) {
             const hits = await convex.action(api.memoryRecords.vectorSearch, {
               embedding: queryVec,
+              scopes: scope.readScopes,
               limit: args.limit,
             });
             results = hits.map((h) => h.record);
@@ -87,6 +102,7 @@ export function createMemoryTools(conversationId: string): RuntimeTool[] {
         if (results.length === 0) {
           results = await convex.query(api.memoryRecords.search, {
             query: args.query,
+            scopes: scope.readScopes,
             limit: args.limit,
           });
         }
@@ -114,6 +130,6 @@ export function createMemoryTools(conversationId: string): RuntimeTool[] {
   ];
 }
 
-export function createMemoryMcp(conversationId: string) {
-  return createClaudeMcpServer(NAMESPACE, createMemoryTools(conversationId));
+export function createMemoryMcp(conversationId: string, scope: MemoryToolScope = DEFAULT_SCOPE) {
+  return createClaudeMcpServer(NAMESPACE, createMemoryTools(conversationId, scope));
 }

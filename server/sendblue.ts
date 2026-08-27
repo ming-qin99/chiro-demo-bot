@@ -7,6 +7,7 @@ import { validateImageHeader, MAX_IMAGE_BYTES, type ImageMediaType } from "./ima
 import { redactContactHandle, redactPhoneNumbers } from "./privacy.js";
 import { maybeHandleScriptedDemoReply } from "./scripted-demo-replies.js";
 import { verifySendblueWebhookSecret } from "./sendblue-webhook-auth.js";
+import { resolveContact } from "./identity.js";
 
 const API_BASE = "https://api.sendblue.com/api";
 const MAX_CHUNK = 2900;
@@ -74,22 +75,23 @@ function normalizeE164(n: string | undefined): string | undefined {
   return trimmed;
 }
 
-export async function sendImessage(toNumber: string, text: string): Promise<void> {
+export async function sendImessage(toNumber: string, text: string): Promise<boolean> {
   const h = headers();
   if (!h) {
     console.warn("[sendblue] missing credentials — not sending");
-    return;
+    return false;
   }
   const from = normalizeE164(process.env.SENDBLUE_FROM_NUMBER);
   if (!from) {
     console.error(
       `[sendblue] SENDBLUE_FROM_NUMBER is not set. Run \`npm run sendblue:sync\` (pulls it from \`sendblue lines\`) or paste your provisioned number into .env.local, then restart \`npm run dev\`.`,
     );
-    return;
+    return false;
   }
   // Intentional privacy guard: Boop should not deliver phone numbers back over
   // iMessage, even if an agent includes one in its final reply.
   const plain = redactPhoneNumbers(stripMarkdown(text));
+  let sent = true;
   for (const part of chunk(plain)) {
     const res = await fetch(`${API_BASE}/send-message`, {
       method: "POST",
@@ -97,6 +99,7 @@ export async function sendImessage(toNumber: string, text: string): Promise<void
       body: JSON.stringify({ number: toNumber, content: part, from_number: from }),
     });
     if (!res.ok) {
+      sent = false;
       const body = await res.text().catch(() => "");
       console.error(
         `[sendblue] send failed ${res.status}: ${redactPhoneNumbers(body).slice(0, 500)}`,
@@ -118,6 +121,7 @@ export async function sendImessage(toNumber: string, text: string): Promise<void
       console.log(`[sendblue] → sent ${part.length} chars to ${redactContactHandle(toNumber)}`);
     }
   }
+  return sent;
 }
 
 export async function sendTypingIndicator(toNumber: string): Promise<void> {
@@ -280,12 +284,18 @@ export function createSendblueRouter(): express.Router {
       return;
     }
 
+    const contact = await resolveContact(from_number);
+
     const stopTyping = startTypingLoop(from_number);
     try {
       const reply = await handleUserMessage({
         conversationId,
         content: textForLog,
         turnTag,
+        audience: contact.audience,
+        patientPhone: contact.phone,
+        clinikoPatientId: contact.clinikoPatientId,
+        displayName: contact.displayName,
         images: ingested,
         mediaError: ingestErrors.length > 0 ? ingestErrors.join("; ") : undefined,
         onThinking: (t) => broadcast("thinking", { conversationId, t }),

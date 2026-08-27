@@ -31,6 +31,10 @@ import {
 } from "./runtime-config.js";
 import { startImageCleanup } from "./images/clean.js";
 import { isPublicServerRequest, isTrustedLocalRequest } from "./local-access.js";
+import { resolveContact, type Audience } from "./identity.js";
+import { startEscalationLoop } from "./escalations.js";
+import { createClinikoRouter } from "./cliniko-routes.js";
+import { startClinikoOutreachLoop } from "./cliniko/outreach.js";
 
 async function main() {
   await loadIntegrations();
@@ -38,6 +42,8 @@ async function main() {
   startAutomationLoop();
   startHeartbeatLoop();
   startConsolidationLoop();
+  startEscalationLoop();
+  startClinikoOutreachLoop();
   startImageCleanup();
   // No-op when a paid embedding key is set; otherwise downloads/loads the
   // local BGE-large model in the background so the first user-facing
@@ -138,6 +144,7 @@ async function main() {
   app.use("/memory", createMemoryRouter());
   app.use("/browser", createBrowserRouter());
   app.use("/apple", createAppleRouter());
+  app.use("/cliniko", createClinikoRouter());
   app.use("/changelog", createChangelogRouter());
 
   app.post("/agents/:id/cancel", (req, res) => {
@@ -169,15 +176,31 @@ async function main() {
 
   // Chat endpoint for local testing and the debug dashboard
   app.post("/chat", async (req, res) => {
-    const { conversationId, content } = req.body ?? {};
+    const { conversationId, content, audience, clinikoPatientId, displayName } = req.body ?? {};
     if (!conversationId || !content) {
       res.status(400).json({ error: "conversationId and content required" });
       return;
     }
     try {
+      const resolved = String(conversationId).startsWith("sms:")
+        ? await resolveContact(String(conversationId).slice(4))
+        : {
+            phone: undefined,
+            audience: "staff" as Audience,
+            clinikoPatientId: undefined,
+            displayName: undefined,
+          };
+      const requestedAudience = ["patient", "staff", "unknown"].includes(String(audience))
+        ? (String(audience) as Audience)
+        : resolved.audience;
       const reply = await handleUserMessage({
         conversationId,
         content,
+        audience: requestedAudience,
+        patientPhone: resolved.phone,
+        clinikoPatientId:
+          typeof clinikoPatientId === "string" ? clinikoPatientId : resolved.clinikoPatientId,
+        displayName: typeof displayName === "string" ? displayName : resolved.displayName,
         persistAssistantReply: true,
       });
       res.json({ reply });

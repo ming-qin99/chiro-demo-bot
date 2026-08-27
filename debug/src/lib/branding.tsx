@@ -74,6 +74,7 @@ const TOOL_BRANDS: ToolBrand[] = [
   { key: "dropbox", displayName: "Dropbox", domain: "dropbox.com", aliases: ["dropbox"] },
   { key: "stripe", displayName: "Stripe", domain: "stripe.com", aliases: ["stripe"] },
   { key: "supabase", displayName: "Supabase", domain: "supabase.com", aliases: ["supabase"] },
+  { key: "cliniko", displayName: "Cliniko", domain: "cliniko.com", aliases: ["cliniko"] },
   { key: "granola", displayName: "Granola", domain: "granola.ai", aliases: ["granola", "granola_mcp"] },
   {
     key: "imessage",

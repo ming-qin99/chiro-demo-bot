@@ -12,6 +12,7 @@ import {
   Settings01Icon,
   Moon02Icon,
   Sun03Icon,
+  Message01Icon,
 } from "@hugeicons/core-free-icons";
 import { api } from "../../convex/_generated/api.js";
 import { useSocket } from "./lib/useSocket.js";
@@ -23,6 +24,7 @@ import { EventsPanel } from "./components/EventsPanel.js";
 import { ConnectionsPanel } from "./components/ConnectionsPanel.js";
 import { ConsolidationPanel } from "./components/ConsolidationPanel.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
+import { EscalationsPanel } from "./components/EscalationsPanel.js";
 import { ChangelogDrawer } from "./components/ChangelogDrawer.js";
 import { RuntimeProviderLogo, type RuntimeProvider } from "./lib/branding.js";
 import boopGif from "../../assets/boop.gif";
@@ -34,6 +36,7 @@ type View =
   | "memory"
   | "events"
   | "consolidation"
+  | "escalations"
   | "connections"
   | "settings";
 
@@ -91,6 +94,7 @@ const NAV_ICONS: Record<View, any> = {
   memory: AiBrain02Icon,
   events: Activity01Icon,
   consolidation: ArrowShrink02Icon,
+  escalations: Message01Icon,
   connections: Link04Icon,
   settings: Settings01Icon,
 };
@@ -102,6 +106,7 @@ const NAV: { id: View; label: string }[] = [
   { id: "memory", label: "Memory" },
   { id: "events", label: "Events" },
   { id: "consolidation", label: "Consolidation" },
+  { id: "escalations", label: "Escalations" },
   { id: "connections", label: "Connections" },
   { id: "settings", label: "Settings" },
 ];
@@ -348,7 +353,7 @@ export function App() {
         >
           <div>
             <div className={`text-[11px] ${isDark ? "text-zinc-500" : "text-zinc-500"}`}>
-              Boop Debug
+              Clinic Assistant
             </div>
             <h2 className={`text-sm font-medium ${isDark ? "text-zinc-100" : "text-zinc-950"}`}>
               {currentView}
@@ -391,6 +396,7 @@ export function App() {
             )}
             {view === "events" && <EventsPanel isDark={isDark} />}
             {view === "consolidation" && <ConsolidationPanel isDark={isDark} />}
+            {view === "escalations" && <EscalationsPanel isDark={isDark} />}
             {view === "connections" && <ConnectionsPanel isDark={isDark} />}
             {view === "settings" && (
               <SettingsPanel
@@ -488,7 +494,7 @@ function ConnectionHeader({
     : healthy
       ? "Connection healthy"
       : connected
-        ? "Boop starting"
+        ? "Assistant starting"
         : "Disconnected";
 
   return (
@@ -505,10 +511,10 @@ function ConnectionHeader({
           isDark ? "hover:bg-white/5" : "hover:bg-white/70"
         }`}
       >
-        <img src={boopGif} alt="Boop" className="h-8 w-8 rounded-2xl object-cover" />
+        <img src={boopGif} alt="Clinic Assistant" className="h-8 w-8 rounded-2xl object-cover" />
         <div className="min-w-0">
           <h1 className={`truncate text-sm font-semibold ${isDark ? "text-zinc-100" : "text-zinc-950"}`}>
-            Boop
+            Clinic Assistant
           </h1>
           <div
             className={`flex items-center gap-1.5 truncate text-xs ${
@@ -572,7 +578,7 @@ function ConnectionHeader({
           {expanded && desktopStatus && (
             <div className={`mt-3 space-y-2 border-t pt-3 ${isDark ? "border-white/10" : "border-zinc-200"}`}>
               <ConnectionDetail label="Convex URL" value={desktopStatus.convexUrl} isDark={isDark} />
-              <ConnectionDetail label="Text Boop" value={desktopStatus.phoneNumber} isDark={isDark} />
+              <ConnectionDetail label="Text clinic" value={desktopStatus.phoneNumber} isDark={isDark} />
               <ConnectionDetail label="Public URL" value={desktopStatus.publicUrl} isDark={isDark} />
               <ConnectionDetail
                 label="Expected webhook"

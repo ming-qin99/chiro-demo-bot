@@ -1,36 +1,33 @@
 import { describe, expect, it } from "vitest";
 import {
-  matchesLinkedInDemoPrompt,
-  matchesWaterBottleDemoPrompt,
+  matchesClinicalQuestionDemoPrompt,
+  matchesDemoSlotChoice,
+  matchesRescheduleDemoPrompt,
 } from "../server/scripted-demo-replies.js";
 
 describe("scripted demo replies", () => {
-  it("matches the private water-bottle demo prompt with normal texting punctuation", () => {
-    expect(
-      matchesWaterBottleDemoPrompt("What was that water bottle brand my mom texted me about?"),
-    ).toBe(true);
-    expect(
-      matchesWaterBottleDemoPrompt(
-        "  what   was that water bottle brand my mom texted me about!!! ",
-      ),
-    ).toBe(true);
+  it("matches appointment reschedule requests with normal texting punctuation", () => {
+    expect(matchesRescheduleDemoPrompt("Can I move my Thursday appointment?")).toBe(true);
+    expect(matchesRescheduleDemoPrompt("  reschedule   my appt!!! ")).toBe(true);
   });
 
   it("does not intercept unrelated messages", () => {
-    expect(matchesWaterBottleDemoPrompt("what water bottle should I buy?")).toBe(false);
-    expect(matchesWaterBottleDemoPrompt("what did my mom text me about?")).toBe(false);
+    expect(matchesRescheduleDemoPrompt("What are your hours?")).toBe(false);
+    expect(matchesRescheduleDemoPrompt("My shoulder feels sore")).toBe(false);
   });
 
-  it("matches natural LinkedIn browser demo prompts", () => {
-    expect(matchesLinkedInDemoPrompt("Check my LinkedIn")).toBe(true);
-    expect(matchesLinkedInDemoPrompt("Check my LinkedIn messages using the browser.")).toBe(true);
-    expect(matchesLinkedInDemoPrompt("Can you use the browser to check my LinkedIn messages?")).toBe(
-      true,
-    );
+  it("matches clinical questions that should escalate", () => {
+    expect(matchesClinicalQuestionDemoPrompt("Should I keep exercising if the pain is worse?")).toBe(true);
+    expect(matchesClinicalQuestionDemoPrompt("Is it normal to feel sore after today?")).toBe(true);
   });
 
-  it("does not intercept unrelated LinkedIn messages", () => {
-    expect(matchesLinkedInDemoPrompt("Write a LinkedIn post for me")).toBe(false);
-    expect(matchesLinkedInDemoPrompt("Who messaged me?")).toBe(false);
+  it("does not treat front-desk questions as clinical escalations", () => {
+    expect(matchesClinicalQuestionDemoPrompt("Can I move my appointment?")).toBe(false);
+    expect(matchesClinicalQuestionDemoPrompt("What are your opening hours?")).toBe(false);
+  });
+
+  it("normalizes the two scripted slot choices", () => {
+    expect(matchesDemoSlotChoice("Tuesday at 3 please")).toBe("Tuesday 3pm");
+    expect(matchesDemoSlotChoice("Wed 10:30 works")).toBe("Wednesday 10:30am");
   });
 });

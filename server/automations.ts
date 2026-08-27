@@ -59,6 +59,7 @@ async function runAutomation(a: {
       integrations: a.integrations,
       conversationId: a.conversationId,
       name: `auto:${a.name}`,
+      audience: "staff",
     });
     await convex.mutation(api.automations.updateRun, {
       runId,

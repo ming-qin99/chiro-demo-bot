@@ -182,6 +182,7 @@ export async function runConsolidation(trigger = "scheduled"): Promise<{
   try {
     const memories = await convex.query(api.memoryRecords.list, {
       lifecycle: "active",
+      scopes: ["clinic", "staff"],
       limit: 150,
     });
     broadcast("consolidation_phase", { runId, phase: "loaded", memoriesCount: memories.length });
@@ -211,7 +212,7 @@ export async function runConsolidation(trigger = "scheduled"): Promise<{
     const payload = memories
       .map((m) => {
         const ageDays = Math.round((Date.now() - m.createdAt) / 86400000);
-        const prefix = `- [${m.memoryId}] (${m.tier}/${m.segment} i=${m.importance.toFixed(2)} age=${ageDays}d)`;
+        const prefix = `- [${m.memoryId}] (${m.scope ?? "clinic"}/${m.tier}/${m.segment} i=${m.importance.toFixed(2)} age=${ageDays}d)`;
         // Surface correction metadata inline so the LLM sees what was being
         // corrected without having to infer it from content alone.
         let suffix = "";
@@ -389,6 +390,12 @@ export async function runConsolidation(trigger = "scheduled"): Promise<{
     });
 
     const applied: Applied[] = [];
+    const memoryById = new Map(memories.map((memory) => [memory.memoryId, memory]));
+    const hasOneScope = (ids: string[], scope: string): boolean =>
+      ids.every((id) => {
+        const memory = memoryById.get(id);
+        return memory !== undefined && (memory.scope ?? "clinic") === scope;
+      });
     broadcast("consolidation_phase", { runId, phase: "applying" });
     for (let i = 0; i < proposals.length; i++) {
       if (!approved.has(i)) continue;
@@ -397,6 +404,11 @@ export async function runConsolidation(trigger = "scheduled"): Promise<{
         if (p.type === "merge" && p.keep && p.absorb?.length && p.rewriteContent) {
           const keep = memories.find((m) => m.memoryId === p.keep);
           if (!keep) continue;
+          const keepScope = keep.scope ?? "clinic";
+          if (!hasOneScope(p.absorb, keepScope)) {
+            console.warn("[consolidation] rejected cross-scope merge", p);
+            continue;
+          }
           await convex.mutation(api.memoryRecords.upsert, {
             memoryId: keep.memoryId,
             content: p.rewriteContent,
@@ -405,6 +417,7 @@ export async function runConsolidation(trigger = "scheduled"): Promise<{
             importance: keep.importance,
             decayRate: keep.decayRate,
             supersedes: p.absorb,
+            scope: keepScope,
           });
           merged++;
           applied.push({
@@ -415,6 +428,11 @@ export async function runConsolidation(trigger = "scheduled"): Promise<{
         } else if (p.type === "supersede" && p.newer && p.older?.length) {
           const newer = memories.find((m) => m.memoryId === p.newer);
           if (!newer) continue;
+          const newerScope = newer.scope ?? "clinic";
+          if (!hasOneScope(p.older, newerScope)) {
+            console.warn("[consolidation] rejected cross-scope supersede", p);
+            continue;
+          }
           await convex.mutation(api.memoryRecords.upsert, {
             memoryId: newer.memoryId,
             content: newer.content,
@@ -423,6 +441,7 @@ export async function runConsolidation(trigger = "scheduled"): Promise<{
             importance: newer.importance,
             decayRate: newer.decayRate,
             supersedes: p.older,
+            scope: newerScope,
           });
           merged++;
           applied.push({
@@ -431,6 +450,12 @@ export async function runConsolidation(trigger = "scheduled"): Promise<{
             summary: `${p.newer} supersedes ${p.older.length} older`,
           });
         } else if (p.type === "prune" && p.memoryId) {
+          // The LLM may only act on the clinic/staff snapshot it was given.
+          // Reject hallucinated IDs so it cannot reach a patient-scoped row.
+          if (!memoryById.has(p.memoryId)) {
+            console.warn("[consolidation] rejected prune outside loaded scopes", p);
+            continue;
+          }
           await convex.mutation(api.memoryRecords.setLifecycle, {
             memoryId: p.memoryId,
             lifecycle: "pruned",

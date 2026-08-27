@@ -8,6 +8,17 @@ Format:
 
 ---
 
+## Unreleased — Cliniko-connected clinic assistant
+
+- Changed: inverted the single-user Boop persona into `patient | staff | unknown` clinic audiences with separate prompts and dispatcher tool allowlists.
+- Added: server-only Cliniko client and integration tools for patient-pinned records, appointments, availability, practitioner follow-up instructions, and staff operations.
+- Added: confirmation-gated Cliniko booking/reschedule/cancel drafts with patient-ID and appointment-ownership checks.
+- Added: per-patient, staff, and shared-clinic memory scopes across recall, writes, extraction, vector search, dashboard display, and consolidation.
+- Added: practitioner escalation lifecycle, staff reminders, answer relay, dashboard view, and fake demo rows.
+- Added: idempotent 24–25-hour appointment reminders and post-session follow-up drafting from finalized practitioner to-dos.
+- Added: clinic profile/Cliniko settings, local Cliniko status controls, clinic demo conversations, two-phone scripted pitch flows, and focused Cliniko safety tests.
+- Security: patient agents cannot access raw patient IDs, other-patient records, admin/config tools, automations, or staff-only outbound messaging. Demo data uses fictional `+1555…` contacts and no live credentials.
+
 ## Unreleased — Optional local Apple data
 
 - Added: optional Mac-only, read-only local Apple data connectors for iMessage/SMS history, Apple Notes, and Apple Reminders. The integration is off by default and requires both the master Apple data toggle and a per-source connect action before tools are exposed.

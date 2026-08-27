@@ -41,6 +41,9 @@ interface DemoCounts {
   automationRuns: number;
   consolidationRuns: number;
   usageRecords: number;
+  escalations: number;
+  clinikoOutreach: number;
+  drafts: number;
 }
 
 interface AgentTemplate {
@@ -61,6 +64,7 @@ interface MemoryTemplate {
   tier: MemoryTier;
   importance: number;
   graphLabel?: string;
+  scope?: string;
 }
 
 function ago(now: number, days: number, offset = 0): number {
@@ -133,6 +137,9 @@ async function demoCounts(ctx: QueryCtx | MutationCtx): Promise<DemoCounts> {
     automationRuns,
     consolidationRuns,
     usageRecords,
+    escalations,
+    clinikoOutreach,
+    drafts,
   ] = await Promise.all([
     ctx.db.query("conversations").order("desc").take(DEMO_SCAN_LIMIT),
     ctx.db.query("messages").order("desc").take(DEMO_SCAN_LIMIT),
@@ -144,6 +151,9 @@ async function demoCounts(ctx: QueryCtx | MutationCtx): Promise<DemoCounts> {
     ctx.db.query("automationRuns").order("desc").take(DEMO_SCAN_LIMIT),
     ctx.db.query("consolidationRuns").order("desc").take(DEMO_SCAN_LIMIT),
     ctx.db.query("usageRecords").order("desc").take(DEMO_SCAN_LIMIT),
+    ctx.db.query("escalations").order("desc").take(DEMO_SCAN_LIMIT),
+    ctx.db.query("clinikoOutreach").order("desc").take(DEMO_SCAN_LIMIT),
+    ctx.db.query("drafts").order("desc").take(DEMO_SCAN_LIMIT),
   ]);
 
   return {
@@ -163,6 +173,9 @@ async function demoCounts(ctx: QueryCtx | MutationCtx): Promise<DemoCounts> {
     usageRecords: usageRecords.filter(
       (r) => isDemoId(r.conversationId) || isDemoId(r.agentId) || isDemoId(r.runId),
     ).length,
+    escalations: escalations.filter((r) => isDemoId(r.escalationId)).length,
+    clinikoOutreach: clinikoOutreach.filter((r) => isDemoId(r.outreachId)).length,
+    drafts: drafts.filter((r) => isDemoId(r.draftId)).length,
   };
 }
 
@@ -178,7 +191,31 @@ async function deleteDemoRows(ctx: MutationCtx): Promise<DemoCounts> {
     automationRuns: 0,
     consolidationRuns: 0,
     usageRecords: 0,
+    escalations: 0,
+    clinikoOutreach: 0,
+    drafts: 0,
   };
+
+  const draftRows = await ctx.db.query("drafts").order("desc").take(DEMO_SCAN_LIMIT);
+  for (const row of draftRows) {
+    if (!isDemoId(row.draftId)) continue;
+    await ctx.db.delete(row._id);
+    counts.drafts += 1;
+  }
+
+  const outreachRows = await ctx.db.query("clinikoOutreach").order("desc").take(DEMO_SCAN_LIMIT);
+  for (const row of outreachRows) {
+    if (!isDemoId(row.outreachId)) continue;
+    await ctx.db.delete(row._id);
+    counts.clinikoOutreach += 1;
+  }
+
+  const escalationRows = await ctx.db.query("escalations").order("desc").take(DEMO_SCAN_LIMIT);
+  for (const row of escalationRows) {
+    if (!isDemoId(row.escalationId)) continue;
+    await ctx.db.delete(row._id);
+    counts.escalations += 1;
+  }
 
   const agentLogs = await ctx.db.query("agentLogs").order("desc").take(DEMO_SCAN_LIMIT);
   for (const row of agentLogs) {
@@ -265,70 +302,75 @@ async function deleteDemoRows(ctx: MutationCtx): Promise<DemoCounts> {
 const conversationSeeds = [
   {
     id: "demo:conversation:morning-brief",
-    title: "Morning brief",
-    summary: "Calendar, Gmail, and Linear triage before the first meeting.",
+    title: "Avery — follow-up",
+    summary: "Post-session instructions drawn from the practitioner's finalized note.",
   },
   {
     id: "demo:conversation:dashboard-redesign",
-    title: "Dashboard redesign",
-    summary: "Iterating on the debug dashboard visual system and data density.",
+    title: "Casey — reschedule",
+    summary: "Availability, slot selection, and a patient-confirmed appointment change.",
   },
   {
     id: "demo:conversation:launch-week",
-    title: "Launch week ops",
-    summary: "Tracking blockers, beta feedback, and follow-up drafts.",
+    title: "Morgan — practitioner question",
+    summary: "A clinical question escalated to the practitioner and relayed safely.",
   },
   {
     id: "demo:conversation:personal-admin",
-    title: "Personal admin",
-    summary: "Travel, receipts, reminders, and weekend planning.",
+    title: "Riley — new patient",
+    summary: "Front-desk questions, clinic details, and an introductory booking offer.",
+  },
+  {
+    id: "demo:conversation:staff-approvals",
+    title: "Clinic staff approvals",
+    summary: "Practitioner escalations and patient follow-up drafts awaiting approval.",
   },
 ] as const;
 
 const messageSnippets = [
   [
-    "Can you brief me before standup?",
-    "You have two schedule conflicts, one urgent customer email, and three Linear issues that changed overnight.",
-    "Pull the launch risks into a short list.",
-    "Top risks: webhook retry backoff, stale Gmail auth for one account, and the memory consolidation queue running behind.",
-    "Draft replies for the urgent ones.",
-    "Drafted two short replies and linked the source messages in the thread.",
-    "Remind me after the product review.",
-    "Set a follow-up for 2:30 PM Central and attached the relevant dashboard context.",
+    "What did I need to do after today's session?",
+    "Your practitioner documented two follow-up steps: take a short walk this afternoon and repeat the supported mobility drill twice tomorrow.",
+    "Was there anything about the heat pack?",
+    "The finalized note says to use it for up to ten minutes if it feels comfortable. I won't add advice beyond what was documented.",
+    "Can you remind me tomorrow morning?",
+    "I've prepared a reminder for 9:00 AM tomorrow with those two documented steps.",
   ],
   [
-    "This debug dashboard needs to feel calmer and more like a desktop app.",
-    "I tightened the left navigation, moved status into compact pills, and gave the main content a flush rounded container.",
-    "Make sure settings and connections match the same visual direction.",
-    "Settings now uses the same cards, typography, provider badges, and compact controls as the rest of the dashboard.",
-    "Can we use realistic data so the panels don't look empty?",
-    "Added a demo dataset with memories, agents, tool traces, automations, and consolidation runs.",
-    "Keep the left side as the app background.",
-    "The right pane stays flush to the top, right, and bottom edges while the left side remains the ambient app surface.",
+    "Can I move my Thursday appointment?",
+    "I can offer Tuesday at 3:00 PM or Wednesday at 10:30 AM. Which suits you?",
+    "Tuesday at 3 please.",
+    "I can move your appointment to Tuesday at 3:00 PM. Reply yes to confirm the change.",
+    "Yes, please do.",
+    "Done — the appointment is now Tuesday at 3:00 PM and your confirmation has been updated.",
   ],
   [
-    "Summarize beta feedback from last night.",
-    "Themes: calendar sync confidence, desire for more visible tool traces, and better memory explainability.",
-    "Open issues for the two actionable bugs.",
-    "Created Linear issues for OAuth reconnect copy and automation run detail overflow.",
-    "Check if the release notes mention demo mode.",
-    "They do not yet. I added a note to the launch checklist and drafted the changelog paragraph.",
-    "Who owns the webhook retry fix?",
-    "The backend owner owns the retry policy. I added a reminder to check the branch before end of day.",
+    "Is it normal for the area to feel more sore tonight?",
+    "I don't want to guess about a clinical question. I've asked Dr. Taylor and I'll text you when I hear back.",
+    "Thanks, I'm just not sure whether to do the exercises.",
+    "I've included that detail in the question so Dr. Taylor can answer with the right context.",
+    "Any update?",
+    "Dr. Taylor replied: pause the exercise tonight and call the clinic if the soreness continues to increase. I've relayed the documented answer exactly.",
   ],
   [
-    "Find receipts from this week and group them by project.",
-    "Found six receipts and grouped them under Boop, Home, and Travel.",
-    "Add the flight hold to my calendar if it still looks reasonable.",
-    "The flight still lands before the dinner window. I created a tentative calendar event with the fare link.",
-    "Remember that I prefer no meetings before 9:30 on Fridays.",
-    "Saved that preference as long-term memory and used it to avoid the Friday morning slot.",
-    "What still needs my attention?",
-    "One approval email, one expiring hotel hold, and the Friday design review invite conflict need action.",
+    "Hi, do you see new patients and where are you located?",
+    "Yes — Harbour Health Clinic welcomes new patients. We're at 100 Harbour Street and open Monday to Friday, 8:00 AM to 6:00 PM.",
+    "Do I need a referral?",
+    "A referral isn't required for a standard private appointment. If you're using a specific funding program, the clinic can confirm its paperwork requirements.",
+    "Could I book an initial appointment next week?",
+    "Absolutely. Tell me which days suit you and I'll show available introductory appointment times before asking you to confirm.",
+  ],
+  [
+    "Show me anything waiting for a practitioner answer.",
+    "One patient escalation is pending: Morgan asked whether to continue the documented exercise after increased soreness.",
+    "Tell Morgan to pause tonight and call if it keeps increasing.",
+    "Relayed to Morgan and marked the escalation as answered. A separate post-session follow-up draft for Avery is still pending your approval.",
+    "Send Avery's follow-up.",
+    "Approved and delivered the practitioner-authored follow-up steps to Avery's conversation.",
   ],
 ] as const;
 
-const agentTemplates: AgentTemplate[] = [
+const legacyAgentTemplates: AgentTemplate[] = [
   {
     name: "Morning inbox triage",
     task: "Scan Gmail, identify urgent inbound messages, and prepare a short standup brief.",
@@ -677,7 +719,118 @@ const agentTemplates: AgentTemplate[] = [
   },
 ];
 
-const memoryTemplates: MemoryTemplate[] = [
+const agentTemplates: AgentTemplate[] = [
+  {
+    name: "Upcoming appointment lookup",
+    task: "Find Casey's next appointment using the patient-pinned Cliniko tools.",
+    result: "Found Casey's Thursday appointment without exposing any other patient's schedule.",
+    integrations: ["cliniko"],
+    tool: "mcp__cliniko__get_my_upcoming_appointments",
+    query: "pinned patient upcoming appointments",
+    conversationId: "demo:conversation:dashboard-redesign",
+  },
+  {
+    name: "Availability finder",
+    task: "Find two online-bookable alternatives for Casey's appointment.",
+    result: "Found Tuesday at 3:00 PM and Wednesday at 10:30 AM and returned both for selection.",
+    integrations: ["cliniko"],
+    tool: "mcp__cliniko__get_available_times",
+    query: "next week practitioner appointment type availability",
+    conversationId: "demo:conversation:dashboard-redesign",
+  },
+  {
+    name: "Confirmed reschedule",
+    task: "Execute Casey's approved Cliniko reschedule draft.",
+    result: "Verified the appointment belonged to the pinned patient, moved it, and recorded the confirmation.",
+    integrations: ["cliniko"],
+    tool: "mcp__cliniko__reschedule_my_appointment",
+    query: "approved draft patient-42 appointment-108 Tuesday 15:00",
+    conversationId: "demo:conversation:dashboard-redesign",
+  },
+  {
+    name: "Treatment-note follow-up",
+    task: "Read only Avery's practitioner-authored follow-up instructions.",
+    result: "Extracted two documented to-dos from the finalized note and omitted assessment fields.",
+    integrations: ["cliniko"],
+    tool: "mcp__cliniko__get_my_treatment_note_summaries",
+    query: "pinned patient finalized follow-up instructions",
+    conversationId: "demo:conversation:morning-brief",
+  },
+  {
+    name: "Follow-up approval draft",
+    task: "Prepare Avery's documented follow-up for practitioner approval.",
+    result: "Saved a clinic.followup draft in the staff approval thread; no patient message was sent yet.",
+    integrations: ["cliniko", "boop_memory"],
+    tool: "mcp__boop-drafts__save_draft",
+    query: "clinic.followup appointment-204 patient +15550000001",
+    conversationId: "demo:conversation:staff-approvals",
+  },
+  {
+    name: "Clinical escalation",
+    task: "Escalate Morgan's post-session clinical question to the practitioner.",
+    result: "Created a pending escalation, notified the staff thread, and told Morgan the clinic would follow up.",
+    integrations: ["imessage"],
+    tool: "mcp__clinic-escalations__escalate_to_practitioner",
+    query: "soreness increased after session continue exercises",
+    conversationId: "demo:conversation:launch-week",
+  },
+  {
+    name: "Practitioner answer relay",
+    task: "Relay the practitioner's answer to Morgan and close the escalation.",
+    result: "Delivered the practitioner answer to Morgan and marked the escalation relayed.",
+    integrations: ["imessage"],
+    tool: "mcp__clinic-escalations__answer_escalation",
+    query: "demo:escalation:001 practitioner answer",
+    conversationId: "demo:conversation:staff-approvals",
+  },
+  {
+    name: "New-patient front desk",
+    task: "Answer Riley's clinic-hours and referral questions without accessing patient records.",
+    result: "Returned the configured clinic profile and offered introductory availability.",
+    integrations: ["cliniko", "boop_memory"],
+    tool: "mcp__cliniko__get_available_times",
+    query: "initial appointment next week availability",
+    conversationId: "demo:conversation:personal-admin",
+  },
+  {
+    name: "Tomorrow reminder poll",
+    task: "Find appointments starting in the next 24–25 hour outreach window.",
+    result: "Found two due appointments and skipped one already claimed reminder.",
+    integrations: ["cliniko"],
+    tool: "mcp__cliniko__list_appointments",
+    query: "starts_at bounded reminder window",
+    conversationId: "demo:conversation:staff-approvals",
+  },
+  {
+    name: "Patient memory recall",
+    task: "Recall Casey's scheduling preference within the patient and clinic scopes only.",
+    result: "Recalled Casey prefers late-afternoon appointments; no other patient memories were visible.",
+    integrations: ["boop_memory"],
+    tool: "mcp__boop-memory__recall",
+    query: "appointment time preference",
+    conversationId: "demo:conversation:dashboard-redesign",
+  },
+  {
+    name: "Staff escalation review",
+    task: "List pending practitioner questions before the staff morning handover.",
+    result: "Returned one pending escalation with its patient context and reminder age.",
+    integrations: ["imessage"],
+    tool: "mcp__clinic-escalations__list_escalations",
+    query: "pending clinic escalations",
+    conversationId: "demo:conversation:staff-approvals",
+  },
+  {
+    name: "Clinic policy recall",
+    task: "Retrieve the clinic booking policy for a patient front-desk answer.",
+    result: "Returned the clinic-scoped cancellation and new-patient policy.",
+    integrations: ["boop_memory"],
+    tool: "mcp__boop-memory__recall",
+    query: "clinic booking cancellation policy",
+    conversationId: "demo:conversation:personal-admin",
+  },
+];
+
+const legacyMemoryTemplates: MemoryTemplate[] = [
   {
     content:
       "Prefers the recommended next action first, followed by the short reason and any tradeoffs.",
@@ -776,7 +929,7 @@ const memoryTemplates: MemoryTemplate[] = [
   },
 ];
 
-const memoryFillers = [
+const legacyMemoryFillers = [
   ["identity", "permanent", "Runs a small software team and splits time between product decisions, customer support, and engineering reviews."],
   ["identity", "permanent", "Comfortable reading implementation details, but wants the conclusion before the code path."],
   ["preference", "permanent", "Status updates should say what changed, what is blocked, who owns it, and the next concrete step."],
@@ -841,6 +994,134 @@ const memoryFillers = [
   ["project", "short", "Renewal reply should acknowledge the missed deadline first, then propose the make-good and next check-in."],
 ] satisfies Array<[MemorySegment, MemoryTier, string]>;
 
+const memoryTemplates: MemoryTemplate[] = [
+  {
+    content: "Harbour Health Clinic is at 100 Harbour Street and is open weekdays from 8:00 AM to 6:00 PM.",
+    segment: "knowledge",
+    tier: "permanent",
+    importance: 0.98,
+    graphLabel: "Clinic location and hours",
+    scope: "clinic",
+  },
+  {
+    content: "A standard private initial appointment does not require a referral; funding programs may require extra paperwork.",
+    segment: "knowledge",
+    tier: "permanent",
+    importance: 0.94,
+    graphLabel: "Referral policy",
+    scope: "clinic",
+  },
+  {
+    content: "Appointment changes must be shown as a draft and confirmed before the Cliniko record is changed.",
+    segment: "knowledge",
+    tier: "permanent",
+    importance: 0.99,
+    graphLabel: "Confirm booking changes",
+    scope: "clinic",
+  },
+  {
+    content: "Never provide medical advice beyond the practitioner's finalized note; escalate uncertain clinical questions.",
+    segment: "knowledge",
+    tier: "permanent",
+    importance: 1,
+    graphLabel: "Clinical safety boundary",
+    scope: "clinic",
+  },
+  {
+    content: "Staff follow-up drafts should name the patient, cite the related appointment, and remain pending until approved.",
+    segment: "preference",
+    tier: "long",
+    importance: 0.91,
+    graphLabel: "Staff approval format",
+    scope: "staff",
+  },
+  {
+    content: "Practitioner escalation reminders are due after four hours if no answer has been relayed.",
+    segment: "knowledge",
+    tier: "long",
+    importance: 0.88,
+    graphLabel: "Escalation reminder window",
+    scope: "staff",
+  },
+  {
+    content: "Avery prefers concise follow-up messages with the documented steps in a short list.",
+    segment: "preference",
+    tier: "long",
+    importance: 0.82,
+    graphLabel: "Avery follow-up style",
+    scope: "patient:+15550000001",
+  },
+  {
+    content: "Avery asked for the post-session reminder at 9:00 AM the next morning.",
+    segment: "context",
+    tier: "short",
+    importance: 0.74,
+    graphLabel: "Avery reminder time",
+    scope: "patient:+15550000001",
+  },
+  {
+    content: "Casey prefers late-afternoon appointments when more than one suitable time is available.",
+    segment: "preference",
+    tier: "long",
+    importance: 0.86,
+    graphLabel: "Casey afternoon preference",
+    scope: "patient:+15550000002",
+  },
+  {
+    content: "Casey's appointment was moved only after Casey explicitly replied yes to the proposed Tuesday 3:00 PM slot.",
+    segment: "context",
+    tier: "short",
+    importance: 0.8,
+    graphLabel: "Casey confirmed reschedule",
+    scope: "patient:+15550000002",
+  },
+  {
+    content: "Morgan's question about increased soreness is awaiting or contains a practitioner-authored answer, not model-generated advice.",
+    segment: "context",
+    tier: "short",
+    importance: 0.9,
+    graphLabel: "Morgan clinical escalation",
+    scope: "patient:+15550000003",
+  },
+  {
+    content: "Riley is a prospective new patient interested in an introductory appointment next week.",
+    segment: "relationship",
+    tier: "short",
+    importance: 0.72,
+    graphLabel: "Riley new-patient enquiry",
+    scope: "patient:+15550000004",
+  },
+];
+
+const memoryFillers = [
+  ["knowledge", "permanent", "The assistant may share clinic hours, address, booking policy, and public service information with any texter.", "clinic"],
+  ["knowledge", "permanent", "Patient record tools are pinned to the Cliniko patient matched to the current phone conversation.", "clinic"],
+  ["knowledge", "permanent", "Unknown contacts receive front-desk information only and never staff configuration or other patient data.", "clinic"],
+  ["knowledge", "long", "Appointment reminder polling uses a bounded 24-to-25-hour start window and idempotent outreach claims.", "clinic"],
+  ["knowledge", "long", "Post-session follow-ups use only finalized practitioner to-do fields from the treatment note.", "clinic"],
+  ["preference", "long", "Clinic messages should be warm, direct, and professional without sounding like medical advice.", "clinic"],
+  ["knowledge", "long", "The clinic cancellation policy should be quoted from configuration rather than improvised.", "clinic"],
+  ["context", "short", "Tomorrow's reminder queue contains two appointments that have not yet been claimed.", "staff"],
+  ["context", "short", "One post-session follow-up draft is waiting in the staff approval conversation.", "staff"],
+  ["context", "short", "One practitioner escalation is approaching its four-hour reminder threshold.", "staff"],
+  ["preference", "long", "Staff handovers should list pending escalations before routine follow-up drafts.", "staff"],
+  ["preference", "long", "Show the exact patient confirmation beside any appointment-change draft.", "staff"],
+  ["knowledge", "long", "Failed patient messages remain visible as failed outreach and are never recorded as delivered.", "staff"],
+  ["relationship", "long", "Dr. Taylor prefers clinical questions to include the patient's wording and relevant appointment context.", "staff"],
+  ["context", "short", "Avery's finalized note includes a short walk and a supported mobility drill.", "patient:+15550000001"],
+  ["preference", "long", "Avery prefers morning reminders for next-day home instructions.", "patient:+15550000001"],
+  ["knowledge", "long", "Avery may be shown only practitioner-authored instructions from Avery's own treatment notes.", "patient:+15550000001"],
+  ["context", "short", "Casey selected Tuesday at 3:00 PM from two offered appointment times.", "patient:+15550000002"],
+  ["preference", "long", "Casey prefers appointment choices presented with no more than three clear options.", "patient:+15550000002"],
+  ["knowledge", "long", "Casey's appointment changes require a fresh explicit confirmation before commit.", "patient:+15550000002"],
+  ["context", "short", "Morgan reported increased soreness after the most recent session and asked about exercises.", "patient:+15550000003"],
+  ["preference", "long", "Morgan prefers a text update as soon as the practitioner answers an escalation.", "patient:+15550000003"],
+  ["knowledge", "long", "Morgan's clinical answer must be relayed from the practitioner without added interpretation.", "patient:+15550000003"],
+  ["context", "short", "Riley asked about clinic location, referrals, and introductory availability.", "patient:+15550000004"],
+  ["preference", "long", "Riley is generally available for an initial appointment on weekday afternoons.", "patient:+15550000004"],
+  ["knowledge", "long", "Riley has not been matched to a Cliniko patient record and must remain in unknown-contact mode.", "patient:+15550000004"],
+] satisfies Array<[MemorySegment, MemoryTier, string, string]>;
+
 type DemoMemoryTopic =
   | "launch"
   | "customer-care"
@@ -900,7 +1181,7 @@ function demoMemoryGraphLabel(row: MemoryTemplate): string {
   return words.length > 5 ? `${label}...` : label;
 }
 
-const automationSeeds = [
+const legacyAutomationSeeds = [
   {
     id: "demo:auto:morning-command-center",
     name: "Morning command center",
@@ -956,6 +1237,65 @@ const automationSeeds = [
     task: "Summarize shipped work, open blockers, pending drafts, and tomorrow's calendar pressure.",
     integrations: ["gmail", "googlecalendar", "linear", "slack"],
     schedule: "RRULE:FREQ=DAILY;BYHOUR=18;BYMINUTE=0",
+  },
+];
+
+const automationSeeds = [
+  {
+    id: "demo:auto:appointment-reminders",
+    name: "Tomorrow's appointment reminders",
+    task: "Find appointments starting in 24–25 hours, claim each reminder once, and send the clinic confirmation prompt.",
+    integrations: ["cliniko"],
+    schedule: "RRULE:FREQ=MINUTELY;INTERVAL=5",
+  },
+  {
+    id: "demo:auto:post-session-followups",
+    name: "Post-session follow-up drafts",
+    task: "Find recently ended appointments with finalized practitioner to-dos and prepare staff approval drafts.",
+    integrations: ["cliniko", "imessage"],
+    schedule: "RRULE:FREQ=MINUTELY;INTERVAL=5",
+  },
+  {
+    id: "demo:auto:escalation-reminders",
+    name: "Practitioner escalation reminders",
+    task: "Nudge clinic staff when a patient question has remained pending for four hours.",
+    integrations: ["imessage"],
+    schedule: "RRULE:FREQ=MINUTELY;INTERVAL=15",
+  },
+  {
+    id: "demo:auto:staff-handover",
+    name: "Morning clinic handover",
+    task: "Summarize today's appointments, pending escalations, failed outreach, and approval drafts for staff.",
+    integrations: ["cliniko", "boop_memory"],
+    schedule: "RRULE:FREQ=DAILY;BYHOUR=7;BYMINUTE=45",
+  },
+  {
+    id: "demo:auto:failed-outreach-review",
+    name: "Failed outreach review",
+    task: "List reminder and follow-up deliveries that failed so staff can contact the patient safely.",
+    integrations: ["cliniko", "imessage"],
+    schedule: "RRULE:FREQ=DAILY;BYHOUR=12;BYMINUTE=30",
+  },
+  {
+    id: "demo:auto:clinic-memory-consolidation",
+    name: "Clinic memory consolidation",
+    task: "Consolidate clinic and staff memories while keeping all patient scopes excluded.",
+    integrations: ["boop_memory"],
+    schedule: "RRULE:FREQ=DAILY;BYHOUR=23;BYMINUTE=10",
+  },
+  {
+    id: "demo:auto:booking-policy-check",
+    name: "Booking policy check",
+    task: "Review the configured hours and booking policy for stale front-desk information.",
+    integrations: ["boop_memory"],
+    schedule: "RRULE:FREQ=WEEKLY;BYDAY=MO;BYHOUR=8;BYMINUTE=0",
+  },
+  {
+    id: "demo:auto:end-of-day-clinic-digest",
+    name: "End-of-day clinic digest",
+    task: "Summarize appointment changes, delivered follow-ups, unresolved escalations, and tomorrow's reminders.",
+    integrations: ["cliniko", "imessage", "boop_memory"],
+    schedule: "RRULE:FREQ=DAILY;BYHOUR=18;BYMINUTE=15",
   },
 ];
 
@@ -1204,7 +1544,7 @@ async function seedAgentsAndLogs(ctx: MutationCtx, now: number) {
           successful: true,
           data: {
             results:
-              "Recalled: keep drafts pending for approval; lead with the recommended action; protect the 90-minute writing block; group launch blockers by owner.",
+              "Recalled: keep appointment changes pending until confirmation; expose only the current patient scope; escalate undocumented clinical questions.",
           },
         }),
       },
@@ -1288,10 +1628,11 @@ async function seedAgentsAndLogs(ctx: MutationCtx, now: number) {
 async function seedMemories(ctx: MutationCtx, now: number) {
   const rows: MemoryTemplate[] = [
     ...memoryTemplates,
-    ...memoryFillers.map(([segment, tier, content], index) => ({
+    ...memoryFillers.map(([segment, tier, content, scope], index) => ({
       content,
       segment,
       tier,
+      scope,
       importance: compactNumber(0.54 + (index % 8) * 0.045, 2),
     })),
   ];
@@ -1325,16 +1666,19 @@ async function seedMemories(ctx: MutationCtx, now: number) {
       accessCount: (index * 7) % 29,
       lastAccessedAt: ago(now, index % 10, (index % 6) * 33 * MINUTE),
       sourceTurn: `demo:turn:${topic}:${index % 4}`,
+      scope: row.scope ?? "clinic",
       lifecycle,
       embedding: demoEmbedding(row.content),
       supersedes:
-        index % 17 === 0 && index > 0
+        index % 17 === 0 &&
+        index > 0 &&
+        (seededRows[index - 1]?.scope ?? "clinic") === (row.scope ?? "clinic")
           ? [`demo:mem:${String(index).padStart(3, "0")}`]
           : undefined,
       metadata: JSON.stringify({
         demo: true,
         confidence: compactNumber(0.72 + (index % 9) * 0.025, 2),
-        source: pick(["iMessage", "Gmail", "Calendar", "Linear", "Consolidation"], index),
+        source: pick(["iMessage", "Cliniko", "Clinic profile", "Practitioner", "Consolidation"], index),
         graph: {
           topic,
           label: demoMemoryGraphLabel(row),
@@ -1360,14 +1704,14 @@ async function seedMemoryEvents(ctx: MutationCtx, now: number) {
     "consolidation.applied",
   ];
   const eventCopy = [
-    "Extracted a scheduling preference from the product-review thread.",
-    "Recalled launch-week blockers for the command-center agent.",
-    "Wrote a short-term reminder for the package pickup cutoff.",
-    "Promoted the draft-approval rule after repeated confirmations.",
-    "Merged duplicate memories about customer escalation reply tone.",
-    "Pruned an expired calendar hold after the meeting window passed.",
-    "Proposed consolidation of overlapping launch checklist memories.",
-    "Applied memory cleanup and preserved source-linked evidence.",
+    "Extracted a patient's appointment-time preference into that patient's scope.",
+    "Recalled the shared clinic booking policy for a front-desk answer.",
+    "Wrote a short-term reminder preference after the follow-up conversation.",
+    "Promoted the booking-confirmation rule after repeated staff approval.",
+    "Merged duplicate staff memories about practitioner escalation handoff.",
+    "Pruned expired appointment context after the reschedule was completed.",
+    "Proposed consolidation of overlapping clinic policy memories.",
+    "Applied clinic/staff memory cleanup without reading patient scopes.",
   ];
   let memoryEvents = 0;
   for (let index = 0; index < 128; index += 1) {
@@ -1395,7 +1739,7 @@ async function seedAutomations(ctx: MutationCtx, now: number) {
       task: automation.task,
       integrations: automation.integrations,
       schedule: automation.schedule,
-      timezone: "America/Chicago",
+      timezone: "Australia/Sydney",
       enabled: index !== 5,
       conversationId: pick(conversationSeeds, index).id,
       notifyConversationId: pick(conversationSeeds, index + 1).id,
@@ -1455,25 +1799,25 @@ async function seedConsolidationRuns(ctx: MutationCtx, now: number) {
       prunedCount: status === "completed" ? 6 + index : 0,
       notes:
         status === "failed"
-          ? "Demo adversary pass rejected the proposal set because source evidence was incomplete."
-          : "Reviewed duplicate project memories, durable preferences, and stale short-term context.",
+          ? "Demo adversary pass rejected the proposal set because the scope evidence was incomplete."
+          : "Reviewed duplicate clinic/staff memories while keeping every patient scope excluded.",
       details: JSON.stringify({
         demo: true,
         proposals: [
           {
             action: "merge",
             memoryIds: ["demo:mem:001", "demo:mem:008", "demo:mem:012"],
-            reason: "Duplicate dashboard visual preference across recent turns.",
+            reason: "Duplicate clinic booking policy across recent staff turns.",
           },
           {
             action: "promote",
             memoryIds: ["demo:mem:002", "demo:mem:003"],
-            reason: "Stable user preference with repeated supporting evidence.",
+            reason: "Stable clinic safety rule with repeated supporting evidence.",
           },
           {
             action: "prune",
             memoryIds: ["demo:mem:031", "demo:mem:044"],
-            reason: "Expired calendar context after the meeting window passed.",
+            reason: "Expired appointment context after the booking change completed.",
           },
         ],
         decisions: [
@@ -1542,6 +1886,127 @@ async function seedUsageRecords(ctx: MutationCtx, now: number) {
   return { usageRecords };
 }
 
+async function seedClinicWorkflows(ctx: MutationCtx, now: number) {
+  const escalationRows = [
+    {
+      escalationId: "demo:escalation:001",
+      patientConversationId: "demo:conversation:launch-week",
+      patientPhone: "+15550000003",
+      patientName: "Morgan Lee",
+      question: "The area feels more sore tonight. Should I continue the exercises?",
+      context: "Recent appointment completed today; patient reports increasing soreness.",
+      status: "pending" as const,
+      createdAt: ago(now, 0, 3 * HOUR + 25 * MINUTE),
+    },
+    {
+      escalationId: "demo:escalation:002",
+      patientConversationId: "demo:conversation:morning-brief",
+      patientPhone: "+15550000001",
+      patientName: "Avery Chen",
+      question: "Was the heat-pack instruction for ten or fifteen minutes?",
+      context: "Question answered from the practitioner's finalized follow-up note.",
+      status: "relayed" as const,
+      answer: "Use it for up to ten minutes if it feels comfortable.",
+      createdAt: ago(now, 1, 2 * HOUR),
+      answeredAt: ago(now, 1, 1 * HOUR + 20 * MINUTE),
+    },
+    {
+      escalationId: "demo:escalation:003",
+      patientConversationId: "demo:conversation:dashboard-redesign",
+      patientPhone: "+15550000002",
+      patientName: "Casey Patel",
+      question: "Can the appointment be moved after the late-cancellation cutoff?",
+      context: "Front-desk policy clarification; no clinical advice requested.",
+      status: "answered" as const,
+      answer: "Offer the available times and flag any fee before requesting confirmation.",
+      createdAt: ago(now, 2, 50 * MINUTE),
+      answeredAt: ago(now, 2, 15 * MINUTE),
+    },
+  ];
+  for (const row of escalationRows) await ctx.db.insert("escalations", row);
+
+  const draftRows = [
+    {
+      draftId: "demo:draft:followup:001",
+      conversationId: "demo:conversation:staff-approvals",
+      kind: "clinic.followup",
+      summary: "Post-session follow-up for Avery Chen",
+      payload: JSON.stringify({
+        phone: "+15550000001",
+        text: "Hi Avery, Dr. Taylor documented two follow-up steps: a short walk today and the supported mobility drill twice tomorrow.",
+        outreachId: "demo:outreach:followup:001",
+      }),
+      status: "pending" as const,
+      createdAt: ago(now, 0, 35 * MINUTE),
+    },
+    {
+      draftId: "demo:draft:reschedule:001",
+      conversationId: "demo:conversation:dashboard-redesign",
+      kind: "cliniko.reschedule",
+      summary: "Move Casey Patel to Tuesday at 3:00 PM",
+      payload: JSON.stringify({
+        patientId: "demo-patient-002",
+        appointmentId: "demo-appointment-108",
+        startsAt: new Date(now + 5 * DAY).toISOString(),
+      }),
+      status: "sent" as const,
+      createdAt: ago(now, 1, 30 * MINUTE),
+      decidedAt: ago(now, 1, 25 * MINUTE),
+    },
+  ];
+  for (const row of draftRows) await ctx.db.insert("drafts", row);
+
+  const outreachRows = [
+    {
+      outreachId: "demo:outreach:reminder:001",
+      kind: "reminder" as const,
+      appointmentId: "demo-appointment-301",
+      patientPhone: "+15550000002",
+      status: "sent" as const,
+      scheduledFor: now + 24 * HOUR + 20 * MINUTE,
+      sentAt: ago(now, 0, 10 * MINUTE),
+      createdAt: ago(now, 0, 11 * MINUTE),
+    },
+    {
+      outreachId: "demo:outreach:followup:001",
+      kind: "followup" as const,
+      appointmentId: "demo-appointment-204",
+      patientPhone: "+15550000001",
+      status: "drafted" as const,
+      scheduledFor: ago(now, 0, 3 * HOUR),
+      draftId: "demo:draft:followup:001",
+      createdAt: ago(now, 0, 35 * MINUTE),
+    },
+    {
+      outreachId: "demo:outreach:followup:002",
+      kind: "followup" as const,
+      appointmentId: "demo-appointment-205",
+      patientPhone: "+15550000003",
+      status: "skipped" as const,
+      scheduledFor: ago(now, 0, 6 * HOUR),
+      error: "No finalized practitioner follow-up instructions found",
+      createdAt: ago(now, 0, 4 * HOUR),
+    },
+    {
+      outreachId: "demo:outreach:reminder:002",
+      kind: "reminder" as const,
+      appointmentId: "demo-appointment-302",
+      patientPhone: "+15550000004",
+      status: "failed" as const,
+      scheduledFor: now + 24 * HOUR + 40 * MINUTE,
+      error: "Sendblue delivery failed",
+      createdAt: ago(now, 0, 8 * MINUTE),
+    },
+  ];
+  for (const row of outreachRows) await ctx.db.insert("clinikoOutreach", row);
+
+  return {
+    escalations: escalationRows.length,
+    drafts: draftRows.length,
+    clinikoOutreach: outreachRows.length,
+  };
+}
+
 async function seedDemoData(ctx: MutationCtx) {
   const now = Date.now();
   const counts: DemoCounts = {
@@ -1555,6 +2020,9 @@ async function seedDemoData(ctx: MutationCtx) {
     automationRuns: 0,
     consolidationRuns: 0,
     usageRecords: 0,
+    escalations: 0,
+    clinikoOutreach: 0,
+    drafts: 0,
   };
 
   Object.assign(counts, await seedConversations(ctx, now));
@@ -1564,6 +2032,7 @@ async function seedDemoData(ctx: MutationCtx) {
   Object.assign(counts, await seedAutomations(ctx, now));
   Object.assign(counts, await seedConsolidationRuns(ctx, now));
   Object.assign(counts, await seedUsageRecords(ctx, now));
+  Object.assign(counts, await seedClinicWorkflows(ctx, now));
   return counts;
 }
 
@@ -1599,6 +2068,9 @@ export const setMode = mutation({
       automationRuns: 0,
       consolidationRuns: 0,
       usageRecords: 0,
+      escalations: 0,
+      clinikoOutreach: 0,
+      drafts: 0,
     };
     return {
       enabled: args.enabled,

@@ -1,6 +1,20 @@
 # Architecture
 
-boop-agent is a small distributed system disguised as a single-server app. Four moving parts, each doing one job.
+This clinic-focused Boop fork is a small distributed system disguised as a single-server app. The original dispatcher/worker design remains, with identity, isolation, and human-approval boundaries added around clinic workflows.
+
+## Clinic identity and safety boundary
+
+Inbound Sendblue messages resolve to one of three audiences before the dispatcher runs:
+
+- `staff`: the normalized phone is explicitly listed in `CLINIC_STAFF_PHONE_NUMBERS`.
+- `patient`: a cached contact is pinned to a Cliniko patient ID, or a throttled Cliniko phone match finds one.
+- `unknown`: limited front-desk access to clinic profile facts and public availability.
+
+The resolved audience controls the dispatcher allowlist, execution-agent integration context, and memory scopes. Patient Cliniko tools do not accept a patient ID: they close over the ID resolved for the conversation. Patient booking tools appear only during approved-draft execution, and ownership is rechecked before reschedule/cancel. Staff-only raw patient and message tools are structurally absent from patient runs.
+
+Memory uses `clinic`, `staff`, and `patient:<normalized-phone>` scopes. Vector search filters by permitted scope and post-filters lifecycle after hydration. Background extraction writes into the current contact's scope; consolidation processes only clinic/staff rows and rejects cross-scope proposals.
+
+Clinical uncertainty follows `patient → escalation row → staff iMessage → practitioner answer → patient relay`. Appointment reminders and post-session follow-ups are claimed by `(appointmentId, kind)` before delivery, preventing repeat polls from sending duplicates.
 
 ## The four parts
 
@@ -31,12 +45,12 @@ boop-agent is a small distributed system disguised as a single-server app. Four 
 
 The front door. One instance per user turn. Its job is to **decide**, not to do.
 
-- Reads the user's message + last 10 turns from Convex.
+- Reads the current conversation and receives its resolved `patient | staff | unknown` audience.
 - Has three tools via two MCP servers it owns:
   - `boop-memory.recall(query)` — pull relevant memories.
   - `boop-memory.write_memory(content, segment, importance, tier?)` — persist a durable fact.
   - `boop-spawn.spawn_agent(task, integrations[], name?)` — kick off an execution agent.
-- Its system prompt drills the DISPATCHER rule: answer directly for chit-chat, spawn an agent for real work.
+- Its audience-specific system prompt enforces the dispatcher rule, prohibits cross-patient access, and escalates clinical uncertainty instead of inventing medical guidance.
 - Replies stream through Sendblue back to iMessage (markdown stripped, chunked to 2900 chars).
 
 ### 2. Execution agent — `server/execution-agent.ts`

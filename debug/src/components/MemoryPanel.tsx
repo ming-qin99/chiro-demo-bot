@@ -266,6 +266,16 @@ export function MemoryPanel({
                         {r.segment}
                       </span>
                       <span
+                        className={`max-w-[180px] truncate rounded border px-1.5 py-0.5 text-[10px] mono ${
+                          isDark
+                            ? "border-cyan-400/20 bg-cyan-400/10 text-cyan-300"
+                            : "border-cyan-200 bg-cyan-50 text-cyan-700"
+                        }`}
+                        title={r.scope ?? "clinic"}
+                      >
+                        {r.scope ?? "clinic"}
+                      </span>
+                      <span
                         className={`text-[10px] mono ml-auto ${
                           mutedTextClass(isDark)
                         }`}
@@ -338,6 +348,12 @@ export function MemoryPanel({
                               }`}
                             >
                               {r.decayRate}
+                            </span>
+                          </div>
+                          <div>
+                            Scope:{" "}
+                            <span className={`mono ${isDark ? "text-cyan-300" : "text-cyan-700"}`}>
+                              {r.scope ?? "clinic"}
                             </span>
                           </div>
                           {r.sourceTurn && (

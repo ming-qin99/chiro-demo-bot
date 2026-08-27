@@ -140,6 +140,23 @@ const TOAST_TIMEOUT_MS = 6000;
 const DEMO_CREATED_AT = "2026-07-09T14:30:00.000Z";
 
 const DEMO_TOOLS_BY_SLUG: Record<string, ToolSummary[]> = {
+  cliniko: [
+    {
+      slug: "CLINIKO_GET_MY_UPCOMING_APPOINTMENTS",
+      name: "Upcoming appointments",
+      description: "Read appointments pinned to the patient in the current conversation.",
+    },
+    {
+      slug: "CLINIKO_GET_AVAILABLE_TIMES",
+      name: "Available times",
+      description: "Find online-bookable practitioner availability without exposing patient data.",
+    },
+    {
+      slug: "CLINIKO_GET_MY_TREATMENT_NOTE_SUMMARIES",
+      name: "Practitioner follow-up steps",
+      description: "Read finalized practitioner-authored to-dos for the pinned patient.",
+    },
+  ],
   gmail: [
     {
       slug: "GMAIL_SEARCH_EMAILS",
@@ -281,6 +298,16 @@ function demoConnection(
 const DEMO_TOOLKITS_RESPONSE: ToolkitsResponse = {
   enabled: true,
   toolkits: [
+    {
+      slug: "cliniko",
+      displayName: "Cliniko",
+      authMode: "managed",
+      hasAuthConfig: true,
+      logoUrl: null,
+      description: "Patient-pinned appointments, availability, and practitioner follow-up instructions.",
+      toolCount: DEMO_TOOLS_BY_SLUG.cliniko.length,
+      connections: [demoConnection("cliniko", "Harbour Health Clinic")],
+    },
     {
       slug: "gmail",
       displayName: "Gmail",

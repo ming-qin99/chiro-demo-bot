@@ -2,7 +2,30 @@
 
 Boop's integrations are provided by [Composio](https://composio.dev/?utm_source=chris&utm_medium=youtube&utm_campaign=collab), a tool-aggregator that exposes 1000+ third-party services (Gmail, GitHub, Slack, Notion, Linear, Google Drive, HubSpot, Salesforce, …) behind one API.
 
-There is one built-in non-Composio integration: **Local browser use**. It registers as `browser` only when enabled in the debug dashboard and gives spawned agents a local Patchright Chrome profile for login-required services, visual workflows, JS-heavy pages, or sites that may detect ordinary automation.
+There are built-in non-Composio integrations for **Cliniko**, optional **Local browser use**, and optional read-only **Apple data**. Cliniko is a hand-written server-side connector because it needs conversation-pinned patient tools and clinic-specific write safeguards.
+
+## Cliniko
+
+Configure the server-only key and clinic identity in `.env.local`:
+
+```dotenv
+CLINIKO_API_KEY=<your-server-only-key>
+CLINIKO_USER_AGENT=Clinic iMessage Assistant (ops@yourclinic.example)
+# CLINIKO_SHARD=au2
+# CLINIKO_ENABLED=true
+```
+
+The shard is inferred from suffixed API keys and falls back to `au1`; `CLINIKO_SHARD` overrides it. The client uses Basic auth, repeated `q[]` filters, bounded same-shard pagination, a conservative token bucket, and 429 reset handling. The Settings screen pings `/businesses` through the local-only `/cliniko/status` route.
+
+Tool exposure depends on `IntegrationContext`:
+
+- Patient/unknown runs see public availability; matched patients additionally receive only `get_my_*` reads pinned to their Cliniko patient ID.
+- Approved patient draft execution adds `book_my_appointment`, `reschedule_my_appointment`, and `cancel_my_appointment`; callers cannot substitute another patient ID.
+- Staff read runs add patient, appointment, and treatment-note lookup tools. Raw patient/appointment writes and patient messaging appear only in the write-enabled execution agent created by `send_draft`.
+
+Writes are draft-gated. For `cliniko.*` patient drafts, `send_draft` verifies the stored payload's patient ID against the conversation's resolved Cliniko patient before spawning a write-enabled execution agent. Treatment-note summaries and proactive follow-ups expose only practitioner-authored instruction/to-do fields from finalized notes.
+
+The key is never written to Convex. Only the non-secret `cliniko_enabled` toggle is stored there.
 
 You don't write integration code. You:
 

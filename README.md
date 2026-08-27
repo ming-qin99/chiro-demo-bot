@@ -2,9 +2,13 @@
   <img src="assets/boop.gif" alt="Boop" width="220" />
 </p>
 
-# Boop
+# Clinic Assistant (Boop fork)
 
-An iMessage-based personal agent you can run with either your Claude Code subscription or your Codex / ChatGPT subscription.
+An always-on iMessage clinic assistant backed by Cliniko. Patients can ask front-desk questions, review practitioner-authored follow-up steps, and confirm appointment changes; clinic staff receive approval drafts and practitioner escalations in their own iMessage thread.
+
+This remains an upstream-friendly Boop fork: internal `boop-*` tool names, `BOOP_*` environment variables, and the package name are intentionally retained.
+
+> **Use synthetic data or a Cliniko trial while validating.** This repository is not a healthcare-compliance certification. Before processing real patient information, add deployment-appropriate Convex authentication/authorization and complete your clinic's security, retention, vendor, and regulatory review.
 
 Choose your runtime during setup:
 
@@ -25,10 +29,13 @@ No Anthropic or OpenAI API key is required for the agent runtime when using subs
 > It's the architecture I built for my own personal agent, opened up as a template so you can take it, text-enable your own Claude or Codex-backed agent, and extend it however you want. Integrations are plugged in via [Composio](https://composio.dev/?utm_source=chris&utm_medium=youtube&utm_campaign=collab) — drop in an API key and connect Gmail, Slack, GitHub, Linear, Notion, and ~1000 others straight from the debug dashboard.
 
 ```
- iMessage  →  Sendblue webhook  →  Interaction agent  →  Sub-agents (per task)
-                                          │                    │
-                                          ▼                    ▼
-                                    Memory store  ←──  Integrations (your MCP tools)
+ iMessage  →  identity resolver  →  patient | staff | unknown dispatcher
+                                             │
+                                             ▼
+                              patient-pinned Cliniko tools + scoped memory
+                                             │
+                                             ▼
+                                drafts, escalations, and outreach
 ```
 
 Built on:
@@ -42,6 +49,11 @@ Built on:
 
 ## What you get
 
+- **Audience isolation** — staff numbers come only from the configured allowlist; patients are matched to a cached Cliniko patient; unmatched numbers stay in a limited front-desk mode.
+- **Patient-scoped memory** — patients read only `patient:<phone>` plus shared `clinic` facts. Staff read `staff` plus `clinic`. Consolidation cannot cross those boundaries.
+- **Cliniko integration** — patient-pinned appointment and treatment-note reads, staff operations, availability, booking changes, reminders, and follow-up workflows.
+- **Human approval** — bookings/reschedules/cancellations commit only after a matching draft is approved. Follow-up texts default to staff approval.
+- **Practitioner escalation** — uncertain clinical questions are sent to staff and the answer is relayed back with a visible lifecycle.
 - **iMessage in / iMessage out** via Sendblue (with signed inbound requests, typing indicators, and webhook dedup).
 - **Sendblue CLI integration** — `npm run dev` auto-registers the inbound webhook for you every restart (no re-pasting into the dashboard when free ngrok rotates your URL).
 - **Dispatcher + workers** pattern: a lean interaction agent decides what to do, spawns focused sub-agents that actually do the work.
@@ -128,6 +140,7 @@ You need accounts for these. Keep the tabs open — setup will ask for credentia
 | [Convex](https://convex.link/chrisraroque) | Database + realtime. | Free tier is plenty | Working on getting one (in touch with them 👀) |
 | [Composio](https://composio.dev/?utm_source=chris&utm_medium=youtube&utm_campaign=collab) | Integrations — one API key unlocks ~1000 toolkits. Optional if you just want chat + memory + automations without third-party access. | Free tier covers personal use | `CHRISXCOMPOSIO` — 1 month free on starter plan |
 | [ngrok](https://ngrok.com?ref=chrisraroque) or similar | Expose your local port so Sendblue can reach it. | Free tier works | Working on getting one (if you work here, please reach out!) |
+| [Cliniko](https://www.cliniko.com/) | Patient, appointment, availability, and treatment-note data. Use a trial/sandbox-style clinic while validating. | Account required | — |
 
 **Custom integrations welcome.** Composio covers the common catalog, but you're free to add your own MCP servers under `server/integrations/` and register them in `server/integrations/registry.ts` — the dispatcher treats them the same as Composio-backed ones (just named toolkits the execution agent can spawn against). Useful for in-house APIs, local tools, or anything Composio doesn't ship.
 
@@ -161,6 +174,10 @@ ngrok config add-authtoken <your-token>   # free at https://dashboard.ngrok.com
 # 5. Start everything with one command — server, Convex, debug UI, and ngrok
 npm run dev
 ```
+
+Before connecting a real clinic, set the clinic profile, an identifiable `CLINIKO_USER_AGENT` with a monitored contact email, `CLINIKO_API_KEY`, and every trusted staff number in `CLINIC_STAFF_PHONE_NUMBERS`. Keep demo mode off on real deployments. See [.env.example](.env.example) and [INTEGRATIONS.md](INTEGRATIONS.md).
+
+The Cliniko key is server-only: keep it in `.env.local` or the deployment environment. It is never stored in Convex or exposed through Vite.
 
 `npm run dev` prints color-prefixed output from all four processes and shows a banner with your ngrok webhook URL once the tunnel is live.
 

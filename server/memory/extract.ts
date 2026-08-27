@@ -52,6 +52,7 @@ export async function extractAndStore(opts: {
   turnId: string;
   runtimeConfig?: RuntimeConfig;
   imageStorageIds?: string[];
+  scope: string;
 }): Promise<void> {
   const started = Date.now();
   try {
@@ -126,6 +127,7 @@ export async function extractAndStore(opts: {
         sourceTurn: opts.turnId,
         embedding,
         metadata,
+        scope: opts.scope,
         // TODO(codegen): drop cast once schema push regenerates Convex API.
         imageStorageIds: isImageDescription
           ? (opts.imageStorageIds as never)

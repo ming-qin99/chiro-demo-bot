@@ -1,5 +1,6 @@
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import type { RuntimeTool } from "../runtimes/types.js";
+import type { Audience } from "../identity.js";
 
 export interface IntegrationModule {
   name: string;
@@ -12,6 +13,11 @@ export interface IntegrationModule {
 
 export interface IntegrationContext {
   conversationId?: string;
+  audience?: Audience;
+  patientPhone?: string;
+  clinikoPatientId?: string;
+  displayName?: string;
+  allowWrites?: boolean;
 }
 
 const registry = new Map<string, IntegrationModule>();
@@ -47,6 +53,8 @@ export async function loadIntegrations(): Promise<void> {
   registerBrowserIntegration();
   const { registerAppleIntegration } = await import("./apple-loader.js");
   registerAppleIntegration();
+  const { registerClinikoIntegration } = await import("./cliniko-loader.js");
+  registerClinikoIntegration();
   const loaded = [...registry.keys()];
   const enabled = (await listEnabledIntegrations()).map((i) => i.name);
   console.log(
@@ -59,15 +67,15 @@ export async function refreshIntegrations(): Promise<void> {
   await loadIntegrations();
 }
 
-export function makeContext(conversationId?: string): IntegrationContext {
-  return { conversationId };
+export function makeContext(context: IntegrationContext = {}): IntegrationContext {
+  return context;
 }
 
 export async function buildMcpServersForIntegrations(
   names: string[],
-  conversationId?: string,
+  context: IntegrationContext = {},
 ): Promise<Record<string, McpSdkServerConfigWithInstance>> {
-  const ctx = makeContext(conversationId);
+  const ctx = makeContext(context);
   const out: Record<string, McpSdkServerConfigWithInstance> = {};
   for (const name of names) {
     const mod = registry.get(name);
@@ -90,9 +98,9 @@ export async function buildMcpServersForIntegrations(
 
 export async function buildRuntimeToolsForIntegrations(
   names: string[],
-  conversationId?: string,
+  context: IntegrationContext = {},
 ): Promise<RuntimeTool[]> {
-  const ctx = makeContext(conversationId);
+  const ctx = makeContext(context);
   const out: RuntimeTool[] = [];
   for (const name of names) {
     const mod = registry.get(name);
